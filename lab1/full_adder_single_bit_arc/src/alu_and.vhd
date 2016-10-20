@@ -1,5 +1,5 @@
 ---------------------------------
---       Matthew Alllen        --
+--       Matthew Allen        --
 --         09/1/2016           --
 --           Lab 1             --
 --  Basic And gate component   --
