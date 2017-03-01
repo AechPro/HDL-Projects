@@ -1,1 +1,1 @@
-# Project written in VHDL from various labs, classes and projects.
+# VHDL lab projects from a Hardware Description Languages class.
