@@ -1,0 +1,171 @@
+-- Dr. Kaputa
+-- Lab 8: Audio Processor 3000 
+
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+
+entity audio_processor_3000 is 
+  port(
+    clk                 : in std_logic;
+    reset               : in std_logic;
+    execute_btn         : in std_logic;
+    sync                : in std_logic;
+    led                 : out std_logic_vector(7 downto 0);
+    audio_out           : out std_logic_vector(15 downto 0)
+  );
+end audio_processor_3000;
+
+architecture beh of audio_processor_3000 is
+constant IDLE  : std_logic_vector(2 downto 0) := "000";
+constant FETCH : std_logic_vector(2 downto 0) := "001";
+constant EXECUTE : std_logic_vector(2 downto 0) := "010";
+constant DECODE : std_logic_vector(2 downto 0) := "011";
+constant DECODE_ERROR : std_logic_vector(2 downto 0) := "100";
+
+constant OP_PLAY : std_logic_vector(2 downto 0) := "00";
+constant OP_PAUSE : std_logic_vector(2 downto 0) := "01";
+constant OP_SEEK : std_logic_vector(2 downto 0) := "10";
+constant OP_STOP : std_logic_vector(2 downto 0) := "11";
+
+signal current_state : std_logic_vector(2 downto 0) := IDLE;
+signal next_state : std_logic_vector(2 downto 0) := IDLE;
+
+signal PC : std_logic_vector(4 downto 0) := (others => '0');
+signal instruction : std_logic_vector(7 downto 0) := (others => '0');
+signal opcode : std_logic_vector(1 downto 0) := (others => '0');
+signal error_flag : std_logic := '0';
+signal repeat : std_logic := '0';
+  -- instruction memory
+  component rom_instructions
+    port(
+      address    : in std_logic_vector (4 DOWNTO 0);
+      clock      : in std_logic  := '1';
+      q          : out std_logic_vector (7 DOWNTO 0)
+    );
+  end component;
+  
+  -- data memory
+  component rom_data
+    port(
+      address  : in std_logic_vector (13 DOWNTO 0);
+      clock    : in std_logic  := '1';
+      q        : out std_logic_vector (15 DOWNTO 0)
+    );
+  end component;
+  
+signal data_address_reg  : std_logic_vector(13 downto 0) := (others => '0');
+signal data_address_play  : std_logic_vector(13 downto 0) := (others => '0');
+signal data_address_play_repeat  : std_logic_vector(13 downto 0) := (others => '0');
+signal data_address_stop  : std_logic_vector(13 downto 0) := (others => '0');
+signal data_address_seek  : std_logic_vector(13 downto 0) := (others => '0');
+signal data_address_pause  : std_logic_vector(13 downto 0) := (others => '0');
+signal data_address  : std_logic_vector(13 downto 0) := (others => '0');
+begin
+
+-- data instantiation
+u_rom_data_inst : rom_data
+  port map (
+    address    => data_address,
+    clock      => clk,
+    q          => audio_out
+  );
+  instruction_data : rom_instructions
+  port map
+  (
+    address => PC,
+    clock => clk,
+    q => instruction
+  );
+  -- loop audio file
+  audio_loop: process(clk,reset)
+  begin 
+    data_address_stop <= (others => '0');
+    if (reset = '1') then 
+      data_address_play <= (others => '0');
+      data_address_pause <= (others => '0');
+      data_address_seek <= (others => '0');
+    elsif (clk'event and clk = '1') then
+      if (sync = '1') then    
+        data_address_play <= std_logic_vector(unsigned(data_address_play) + 1 );
+        data_address_play_repeat <= data_address_play;
+        data_address_pause <= data_address;
+        data_address_seek <= instruction(4 downto 0)&"000000000";
+      end if;
+    end if;
+  end process;
+  state_register:process(clk,reset)
+  begin 
+    if (reset = '1') 
+    then
+      current_state <= IDLE;
+    elsif (clk'event and clk = '1') 
+    then
+      if (sync = '1') 
+      then    
+        current_state <= next_state;
+      end if;
+    end if;
+  end process;
+  
+  logic_register:process(clk,reset)
+  begin 
+    if (reset = '1') 
+    then
+    elsif (clk'event and clk = '1') 
+    then
+      if (sync = '1') 
+      then
+        data_address <= data_address_reg;
+      end if;
+    end if;
+  end process;
+  next_state_logic: process(execute_btn)
+  begin
+    if(execute_btn'event and execute_btn = '0')
+    then
+      case(current_state) is
+        when IDLE => next_state <= FETCH;
+        when FETCH => next_state <= DECODE;
+        when DECODE => next_state <= EXECUTE;
+        when others => next_state <= IDLE;
+      end case;
+    end if;
+  end process;
+  
+  current_state_logic: process(current_state)
+  begin
+    if(current_state = IDLE)
+    then
+      data_address_reg <= data_address;
+    elsif(current_state = FETCH)
+    then
+      PC <= std_logic_vector(unsigned(PC)+1);
+      data_address_reg <= data_address;
+    elsif(current_state = DECODE)
+    then
+      opcode <= instruction(7 downto 6);
+      repeat <= instruction(5);
+      if(opcode ="10" and instruction(4 downto 0) = "00000") 
+      then
+        error_flag = '1';
+      else
+        error_flag = '0';
+      end if;
+    elsif(current_state = EXECUTE)
+    then
+      if(error_flag = '0')
+      then
+        case(opcode) is
+        when PLAY => data_address_reg <= data_address_play;
+        when PAUSE => data_address_reg <= data_address_pause;
+        when SEEK => data_address_reg <= data_address_seek;
+        when STOP => data_address_reg <= data_address_stop;
+      else
+        data_address_reg <= data_address;
+      end if;
+    end if;
+  end process;
+
+  led <= "10101010";
+end beh;
